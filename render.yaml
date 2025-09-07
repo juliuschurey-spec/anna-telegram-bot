@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: anna-telegram-bot
+    env: python
+    buildCommand: ""
+    startCommand: python main.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
