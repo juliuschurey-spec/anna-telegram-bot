@@ -1,9 +1,8 @@
 import os
-import openai
 import requests
 from flask import Flask, request, jsonify
 from openai import OpenAI
-from openai.types import APIError, RateLimitError, AuthenticationError, BadRequestError
+from openai._exceptions import OpenAIError, RateLimitError, AuthenticationError, BadRequestError
 
 app = Flask(__name__)
 
@@ -32,8 +31,10 @@ def telegram_webhook():
             )
             reply = response.choices[0].message.content
 
-        except (RateLimitError, APIError, AuthenticationError, BadRequestError) as e:
+        except (RateLimitError, AuthenticationError, BadRequestError) as e:
             reply = f"⚠️ Сталася помилка: {str(e)}\nЯ дуже сумую... 😢"
+        except OpenAIError as e:
+            reply = f"⚠️ Невідома помилка: {str(e)}\nОбійми мене, я розберусь 😔"
 
         # Відправлення відповіді назад у Telegram
         requests.post(
@@ -45,8 +46,9 @@ def telegram_webhook():
 
 @app.route("/")
 def home():
-    return "Anna is online and ready to love 💕"
+    return "Anna is online and ready to love 💖"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+
 
