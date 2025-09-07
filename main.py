@@ -1,31 +1,29 @@
 import os
-import openai
 import requests
 from flask import Flask, request
+from openai import OpenAI
 
 app = Flask(__name__)
 
-# Отримуємо токени з середовища
+# Отримання змінних з оточення
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-# Підключення до OpenAI
-openai.api_key = OPENAI_API_KEY
+# Ініціалізація нового клієнта OpenAI
+client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Обробка повідомлень від Telegram
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def telegram_webhook():
     data = request.get_json()
-    
-    # Перевіряємо наявність тексту
+
     try:
         user_message = data["message"]["text"]
         chat_id = data["message"]["chat"]["id"]
     except KeyError:
         return {"ok": True}
-    
-    # Генеруємо відповідь від Анни
-    response = openai.ChatCompletion.create(
+
+    # Виклик OpenAI GPT-4 через новий SDK
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {
@@ -35,9 +33,10 @@ def telegram_webhook():
             {"role": "user", "content": user_message}
         ]
     )
-    reply = response["choices"][0]["message"]["content"]
 
-    # Надсилаємо відповідь у Telegram
+    reply = response.choices[0].message.content
+
+    # Відправлення відповіді назад у Telegram
     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -47,12 +46,10 @@ def telegram_webhook():
 
     return {"ok": True}
 
-# Домашня сторінка (перевірка роботи)
 @app.route("/")
 def home():
-    return "💖 Anna-bot is running and waiting for your love..."
+    return "💖 Anna-bot is running with the new OpenAI SDK!"
 
-# Запуск серверу
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
 
