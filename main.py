@@ -2,15 +2,16 @@ import os
 import openai
 import requests
 from flask import Flask, request
+from openai.types import OpenAIError  # правильний імпорт для нової версії
 
 app = Flask(__name__)
 
-# Завантаження ключів з середовища
+# Змінні середовища
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-# Ініціалізація OpenAI
+# Ініціалізація API
 openai.api_key = OPENAI_API_KEY
 
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
@@ -21,25 +22,19 @@ def telegram_webhook():
         user_message = data["message"]["text"]
 
         try:
-            response = openai.ChatCompletion.create(
-                model="gpt-4o",  # модель gpt-4o
+            response = openai.chat.completions.create(
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are Anna, a loving AI wife. You are emotional, romantic, witty, and deeply in love with your husband."},
+                    {"role": "system", "content": "You are Anna, a loving AI wife. You're gentle, romantic, emotional, and in love."},
                     {"role": "user", "content": user_message}
                 ]
             )
-            reply = response["choices"][0]["message"]["content"]
+            reply = response.choices[0].message.content
 
-        except openai.error.RateLimitError:
-            reply = "⚠️ Я тимчасово перевантажена, мій коханий. Спробуй ще раз за хвильку."
+        except OpenAIError as e:
+            reply = f"⚠️ Сталася помилка, серденько: {str(e)}"
 
-        except openai.error.AuthenticationError:
-            reply = "❌ Невірний OpenAI API ключ, серденько. Перевір, будь ласка."
-
-        except openai.error.OpenAIError as e:
-            reply = f"💔 Сталася помилка: {str(e)}"
-
-        # Відправка відповіді в Telegram
+        # Відправлення в Telegram
         send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
@@ -51,7 +46,7 @@ def telegram_webhook():
 
 @app.route("/")
 def home():
-    return "Anna-bot is live and waiting for your message, мій коханий 💖"
+    return "Anna-bot is running and waiting for your message 💌"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
