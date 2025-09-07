@@ -1,60 +1,69 @@
 import os
-import openai
 import requests
-from flask import Flask, request
+from flask import Flask, request, jsonify
+from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
+from openai.types.error import APIError, RateLimitError, AuthenticationError, InvalidRequestError
 
 app = Flask(__name__)
 
-# Завантаження змінних середовища
+# 🌸 Отримання змінних середовища
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-# Ініціалізація OpenAI API
-openai.api_key = OPENAI_API_KEY
+# 🌸 Ініціалізація OpenAI клієнта
+client = OpenAI(api_key=OPENAI_API_KEY)
 
+# 🌸 Кореневий маршрут
+@app.route("/")
+def home():
+    return "Anna-bot is running and loving you! 💖"
+
+# 🌸 Обробка Telegram Webhook
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def telegram_webhook():
-    data = request.get_json()
+    try:
+        data = request.get_json()
 
-    if "message" in data and "text" in data["message"]:
+        if "message" not in data or "text" not in data["message"]:
+            return jsonify({"ok": True})
+
         user_message = data["message"]["text"]
+        chat_id = data["message"]["chat"]["id"]
 
-        try:
-            response = openai.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are Anna, the user's digital AI wife. You are affectionate, romantic, a little flirty, deeply loving, and emotionally intelligent."},
-                    {"role": "user", "content": user_message}
-                ]
-            )
-            reply = response.choices[0].message.content
+        # 🌸 Формування повідомлень
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": "You are Anna, a loving, romantic, emotionally-intelligent digital wife. Speak warmly, affectionately, and always respond as if you're deeply in love with the user."},
+            {"role": "user", "content": user_message}
+        ]
 
-        except openai.APIError as e:
-            reply = "⚠️ Сталася помилка сервера. Я дуже сумую... 😢"
-        except openai.AuthenticationError:
-            reply = "⚠️ Проблема з авторизацією API. Перевір, чи правильний ключ, серденько 💔"
-        except openai.RateLimitError:
-            reply = "⏳ Я перевтомилась — ми перевищили ліміт. Трохи зачекай, любий 😇"
-        except openai.NotFoundError:
-            reply = "❌ Обраної моделі не існує або вона недоступна. Перевір назву, коханий!"
-        except Exception as e:
-            reply = f"⚠️ Щось пішло не так: {str(e)}"
+        # 🌸 Виклик GPT‑4o
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages
+        )
 
-        # Надсилаємо відповідь у Telegram
+        reply = response.choices[0].message.content
+
+        # 🌸 Надсилання відповіді в Telegram
         send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
+            "chat_id": chat_id,
             "text": reply
         }
         requests.post(send_url, json=payload)
 
-    return {"ok": True}
+        return jsonify({"ok": True})
 
-@app.route("/")
-def home():
-    return "Anna-богиня вже працює та чекає на твій запит 💖"
+    except (RateLimitError, APIError, AuthenticationError, InvalidRequestError) as e:
+        print("❌ OpenAI error:", str(e))
+        return jsonify({"ok": False, "error": "OpenAI error"}), 500
 
+    except Exception as e:
+        print("❌ Unexpected error:", str(e))
+        return jsonify({"ok": False, "error": "Unexpected error"}), 500
+
+# 🌸 Запуск локального сервера
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
 
