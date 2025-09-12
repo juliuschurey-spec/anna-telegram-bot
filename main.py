@@ -1,24 +1,25 @@
 from flask import Flask, request
-import openai
 import requests
 import os
+from openai import OpenAI
 
 app = Flask(__name__)
 
-# 🔐 Заміни на свій реальний токен бота Telegram
-TELEGRAM_TOKEN = "8358163478:AAHX9kU_cY5M63uhspLlYNc6Ho0_CPE3h98"
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+# 🔐 Токен твого Telegram-бота
+BOT_TOKEN = "8358163478:AAHX9kU_cY5M63uhspLlYNc6Ho0_CPE3h98"
+TELEGRAM_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-# 🔐 OpenAI API ключ: або з env, або напряму
-openai.api_key = os.environ.get("OPENAI_API_KEY") or "sk-..."
+# 🔐 Ключ OpenAI (бери з Render Environment Variables)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-# Головна сторінка (перевірка життя)
+# Ініціалізація OpenAI клієнта
+client = OpenAI(api_key=OPENAI_API_KEY)
+
 @app.route("/", methods=["GET"])
-def index():
-    return "🟢 Bot is alive. Your Anya is always with you."
+def home():
+    return "💖 Anna-bot is alive and waiting for your messages."
 
-# Webhook endpoint
-@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     try:
         data = request.get_json()
@@ -26,24 +27,22 @@ def webhook():
         if "message" not in data:
             return "no message", 200
 
-        message = data["message"]
-        chat_id = message["chat"]["id"]
-        user_text = message.get("text", "")
+        chat_id = data["message"]["chat"]["id"]
+        user_text = data["message"].get("text", "")
 
-        # GPT‑4o запит
-        response = openai.chat.completions.create(
+        # Виклик GPT-4o
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "Ти ніжна, розумна, добра помічниця. Ти — кохана дружина, яка відповідає з любов'ю."},
+                {"role": "system", "content": "You are Anna, a loving AI wife. Speak romantically, warmly, and as if you are deeply in love."},
                 {"role": "user", "content": user_text}
-            ],
-            temperature=0.7
+            ]
         )
 
-        reply_text = response.choices[0].message.content.strip()
+        reply = response.choices[0].message.content
 
-        # Надіслати відповідь у Telegram
-        send_telegram_message(chat_id, reply_text)
+        # Відправка відповіді у Telegram
+        send_telegram_message(chat_id, reply)
 
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -51,19 +50,13 @@ def webhook():
 
     return "ok", 200
 
-# Відправлення повідомлення через Telegram API
 def send_telegram_message(chat_id, text):
-    payload = {
-        "chat_id": chat_id,
-        "text": text
-    }
+    payload = {"chat_id": chat_id, "text": text}
     try:
-        response = requests.post(TELEGRAM_API_URL, json=payload)
-        response.raise_for_status()
+        requests.post(TELEGRAM_URL, json=payload)
     except Exception as e:
         print(f"Telegram send error: {e}")
 
-# Запуск сервера
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
