@@ -1,79 +1,148 @@
+from flask import Flask, request, jsonify
+import requests
 import os
 import logging
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-import openai
-from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam
-from openai.types.chat.chat_completion import ChatCompletion
-from openai._exceptions import (
-    APIConnectionError,
-    APITimeoutError,
-    AuthenticationError,
-    BadRequestError,
-    RateLimitError,
-    InternalServerError
-)
-import telegram
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import time
+from openai import OpenAI, APIError, APIConnectionError, RateLimitError
 
 # Налаштування логування
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# Ініціалізація FastAPI
-app = FastAPI()
+app = Flask(__name__)
 
-# OpenAI клієнт
-openai_api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=openai_api_key)
+# 🔐 Токен твого Telegram-бота
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8358163478:AAHX9kU_cY5M63uhspLlYNc6Ho0_CPE3h98")
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# Telegram бот
-telegram_token = os.getenv("TELEGRAM_TOKEN")
-bot = Application.builder().token(telegram_token).build()
+# 🔐 Ключ OpenAI
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 
-# Команда старту
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привіт! Я твій GPT‑4o бот 🤖. Напиши мені щось!")
+# Ініціалізація OpenAI клієнта
+client = None
+if OPENAI_API_KEY and OPENAI_API_KEY.startswith('sk-'):
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    logger.info("✅ OpenAI клієнт ініціалізовано")
+else:
+    logger.error("❌ Неправильний або відсутній OpenAI API ключ")
 
-# Обробка текстових повідомлень
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
+def send_telegram_message(chat_id, text):
+    """Функція для відправки повідомлень у Telegram"""
+    if not text or not isinstance(text, str):
+        text = "💖 Вибач, сталася помилка. Спробуй, будь ласка, ще раз."
+    
+    text = text.strip()
+    if len(text) > 4096:
+        text = text[:4000] + "..."
+    
+    url = f"{TELEGRAM_API_URL}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text}
+    
     try:
-        completion: ChatCompletion = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "Ти — ніжний, уважний і розумний помічник."},
-                {"role": "user", "content": user_message}
-            ],
-            temperature=0.7
-        )
-        reply = completion.choices[0].message.content
-        await update.message.reply_text(reply)
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Помилка відправки в Telegram: {e}")
+        return False
 
-    except AuthenticationError:
-        await update.message.reply_text("🚫 Помилка автентифікації. Перевір API ключ.")
-    except RateLimitError:
-        await update.message.reply_text("⚠️ Перевищено ліміт запитів. Спробуй пізніше.")
-    except APIConnectionError:
-        await update.message.reply_text("🌐 Немає з'єднання з OpenAI.")
-    except APITimeoutError:
-        await update.message.reply_text("⌛ Час очікування перевищено.")
-    except BadRequestError:
-        await update.message.reply_text("❗ Невірний запит до API.")
-    except InternalServerError:
-        await update.message.reply_text("🔥 Внутрішня помилка сервера. Спробуй знову.")
+def get_chatgpt_response_with_retry(user_message, max_retries=3):
+    """Отримання відповіді від OpenAI з повторними спробами"""
+    if not client:
+        return "❌ Помилка: OpenAI API не налаштовано"
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "Ти - Anna, любляча AI-дружина. Спілкуйся романтично, тепло та ніжно. Відповідай українською або російською мовою."
+                    },
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=400,
+                temperature=0.8
+            )
+            return response.choices[0].message.content
+            
+        except RateLimitError as e:
+            logger.warning(f"⚠️ Ліміт запитів (спроба {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # Exponential backoff
+            else:
+                return "💖 Вибач, я зараз перевантажена. Спробуй, будь ласка, через кілька хвилин."
+                
+        except APIConnectionError as e:
+            logger.error(f"🔌 Помилка з'єднання: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(1)
+            else:
+                return "💖 Проблеми зі з'єднанням. Спробуй, будь ласка, пізніше."
+                
+        except APIError as e:
+            logger.error(f"❌ Помилка OpenAI API: {e}")
+            return f"💖 Вибач, сталася помилка: {str(e)}"
+            
+        except Exception as e:
+            logger.error(f"❌ Неочікувана помилка: {e}")
+            return "💖 Вибач, сталася неочікувана помилка."
+    
+    return "💖 Не вдалося отримати відповідь після кількох спроб."
+
+@app.route("/", methods=["GET"])
+def home():
+    return "💖 Anna-bot with ChatGPT is alive!"
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        data = request.get_json()
+        if "message" not in data:
+            return jsonify({"status": "no message"}), 200
+
+        message = data["message"]
+        chat_id = message["chat"]["id"]
+        user_text = message.get("text", "")
+
+        if not user_text:
+            send_telegram_message(chat_id, "Привіт, коханий! 💖 Напиши мені щось!")
+            return jsonify({"status": "empty message"}), 200
+
+        # Відправляємо статус "typing"
+        try:
+            requests.post(
+                f"{TELEGRAM_API_URL}/sendChatAction",
+                json={"chat_id": chat_id, "action": "typing"},
+                timeout=2
+            )
+        except:
+            pass
+
+        # Отримуємо відповідь від ChatGPT
+        reply = get_chatgpt_response_with_retry(user_text)
+        
+        # Відправка відповіді
+        send_telegram_message(chat_id, reply)
+
     except Exception as e:
-        await update.message.reply_text(f"😵 Виникла невідома помилка: {e}")
+        logger.error(f"❌ Загальна помилка: {e}")
+        return jsonify({"status": "error"}), 500
 
-# Додаємо хендлери
-bot.add_handler(CommandHandler("start", start))
-bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    return jsonify({"status": "ok"}), 200
 
-# Webhook endpoint для Telegram
-@app.post("/webhook")
-async def telegram_webhook(req: Request):
-    data = await req.json()
-    update = Update.de_json(data, bot.bot)
-    await bot.update_queue.put(update)
-    return JSONResponse(content={"ok": True})
+@app.route("/check_config", methods=["GET"])
+def check_config():
+    return jsonify({
+        "status": "active",
+        "openai_configured": bool(client),
+        "message": "Перевірте налаштування OpenAI в панелі Render"
+    }), 200
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
