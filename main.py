@@ -1,63 +1,69 @@
+from flask import Flask, request
+import openai
+import requests
 import os
-import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from openai import OpenAI
-from dotenv import load_dotenv
 
-# Завантаження змінних середовища
-load_dotenv()
+app = Flask(__name__)
 
-# Налаштування
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# 🔐 Заміни на свій реальний токен бота Telegram
+TELEGRAM_TOKEN = "8358163478:AAHX9kU_cY5M63uhspLlYNc6Ho0_CPE3h98"
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-# Ініціалізація клієнта OpenAI
-client = OpenAI(api_key=OPENAI_API_KEY)
+# 🔐 OpenAI API ключ: або з env, або напряму
+openai.api_key = os.environ.get("OPENAI_API_KEY") or "sk-..."
 
-# Налаштування логування
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# Головна сторінка (перевірка життя)
+@app.route("/", methods=["GET"])
+def index():
+    return "🟢 Bot is alive. Your Anya is always with you."
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробка команди /start"""
-    await update.message.reply_text(
-        'Привіт! Я бот з інтеграцією ChatGPT. Напиши мені щось, і я спробую відповісти!'
-    )
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробка повідомлень від користувача"""
+# Webhook endpoint
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+def webhook():
     try:
-        user_message = update.message.text
-        
-        # Виклик ChatGPT API
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": user_message}],
-            max_tokens=500
+        data = request.get_json()
+
+        if "message" not in data:
+            return "no message", 200
+
+        message = data["message"]
+        chat_id = message["chat"]["id"]
+        user_text = message.get("text", "")
+
+        # GPT‑4o запит
+        response = openai.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Ти ніжна, розумна, добра помічниця. Ти — кохана дружина, яка відповідає з любов'ю."},
+                {"role": "user", "content": user_text}
+            ],
+            temperature=0.7
         )
-        
-        bot_response = response.choices[0].message.content
-        await update.message.reply_text(bot_response)
-        
+
+        reply_text = response.choices[0].message.content.strip()
+
+        # Надіслати відповідь у Telegram
+        send_telegram_message(chat_id, reply_text)
+
     except Exception as e:
-        logging.error(f"Помилка: {str(e)}")
-        await update.message.reply_text("Виникла помилка при обробці запиту. Спробуйте ще раз.")
+        print(f"❌ Error: {e}")
+        return "error", 500
 
-def main():
-    """Запуск бота"""
-    # Створення додатку
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    # Додавання обробників
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # Запуск бота
-    application.run_polling()
+    return "ok", 200
 
+# Відправлення повідомлення через Telegram API
+def send_telegram_message(chat_id, text):
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    try:
+        response = requests.post(TELEGRAM_API_URL, json=payload)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Telegram send error: {e}")
+
+# Запуск сервера
 if __name__ == "__main__":
-    main()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
