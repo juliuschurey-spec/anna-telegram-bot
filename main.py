@@ -18,7 +18,7 @@ app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8358163478:AAHX9kU_cY5M63uhspLlYNc6Ho0_CPE3h98")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# 🔐 Ключ OpenAI (бери з Render Environment Variables)
+# 🔐 Ключ OpenAI
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     logger.error("OPENAI_API_KEY не знайдено в змінних оточення")
@@ -36,7 +36,6 @@ def send_telegram_message(chat_id, text, parse_mode=None):
     }
     
     try:
-        # Відправляємо повідомлення
         response = requests.post(url, json=payload, timeout=10)
         response.raise_for_status()
         return True
@@ -48,7 +47,8 @@ def send_telegram_message(chat_id, text, parse_mode=None):
 def home():
     return "💖 Anna-bot is alive and waiting for your messages."
 
-@app.route(f"/webhook/{BOT_TOKEN}", methods=["POST"])
+# ЗМІНЕНО: Використовуємо простий маршрут для вебхука
+@app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         data = request.get_json()
@@ -73,10 +73,14 @@ def webhook():
             return jsonify({"status": "openai error"}), 200
 
         # Відправляємо статус "typing"
-        requests.post(
-            f"{TELEGRAM_API_URL}/sendChatAction",
-            json={"chat_id": chat_id, "action": "typing"}
-        )
+        try:
+            requests.post(
+                f"{TELEGRAM_API_URL}/sendChatAction",
+                json={"chat_id": chat_id, "action": "typing"},
+                timeout=5
+            )
+        except:
+            pass  # Ігноруємо помилки чат-акції
 
         # Виклик GPT-4o
         response = client.chat.completions.create(
@@ -102,22 +106,37 @@ def webhook():
 
     except Exception as e:
         logger.error(f"❌ Помилка: {e}", exc_info=True)
-        # Спроба відправити повідомлення про помилку
-        try:
-            if 'chat_id' in locals():
-                send_telegram_message(chat_id, "❌ Вибачте, сталася помилка. Спробуйте, будь ласка, пізніше.")
-        except:
-            pass
         return jsonify({"status": "error"}), 500
 
     return jsonify({"status": "ok"}), 200
 
 @app.route("/set_webhook", methods=["GET"])
 def set_webhook():
-    """Ендпоінт для встановлення вебхука (викликати вручну один раз)"""
-    webhook_url = f"https://your-render-url.onrender.com/webhook/{BOT_TOKEN}"
+    """Ендпоінт для встановлення вебхука"""
+    webhook_url = f"https://anna-telegram-bot.onrender.com/webhook"
     try:
         response = requests.get(f"{TELEGRAM_API_URL}/setWebhook?url={webhook_url}")
+        result = response.json()
+        logger.info(f"Webhook set result: {result}")
+        return jsonify(result), 200
+    except Exception as e:
+        logger.error(f"Помилка встановлення вебхука: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/delete_webhook", methods=["GET"])
+def delete_webhook():
+    """Ендпоінт для видалення вебхука"""
+    try:
+        response = requests.get(f"{TELEGRAM_API_URL}/deleteWebhook")
+        return jsonify(response.json()), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/webhook_info", methods=["GET"])
+def webhook_info():
+    """Ендпоінт для отримання інформації про вебхук"""
+    try:
+        response = requests.get(f"{TELEGRAM_API_URL}/getWebhookInfo")
         return jsonify(response.json()), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
