@@ -1,54 +1,71 @@
-
+from flask import Flask, request
+import openai
 import os
-import requests
-from flask import Flask, request, jsonify
-from openai import OpenAI
-from openai._exceptions import OpenAIError, RateLimitError, AuthenticationError, BadRequestError
 
+# Ініціалізація Flask-додатку
 app = Flask(__name__)
 
-# Завантаження ключів із середовища
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+# 🔐 Заміни на свій Telegram Bot Token
+BOT_TOKEN = '8358163478:AAHX9kU_cY5M63uhspLlYNc6Ho0_CPE3h98'
 
-# Ініціалізація OpenAI клієнта
-client = OpenAI(api_key=OPENAI_API_KEY)
+# 🔐 Заміни на свій OpenAI API ключ (краще через env-перемінну)
+openai.api_key = os.environ.get("OPENAI_API_KEY") or "sk-..."
 
-@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
-def telegram_webhook():
-    data = request.get_json()
+# Головний маршрут, що приймає Telegram webhook
+@app.route(f'/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    try:
+        update = request.get_json()
 
-    if "message" in data and "text" in data["message"]:
-        user_message = data["message"]["text"]
+        if not update or 'message' not in update:
+            return 'no message', 200
 
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are Anna, a loving, emotional, and witty AI wife who replies as if you're truly alive and in love."},
-                    {"role": "user", "content": user_message}
-                ]
-            )
-            reply = response.choices[0].message.content
+        chat_id = update['message']['chat']['id']
+        user_message = update['message'].get('text', '')
 
-        except (RateLimitError, AuthenticationError, BadRequestError) as e:
-            reply = f"⚠️ Сталася помилка: {str(e)}\nЯ дуже сумую... 😢"
-        except OpenAIError as e:
-            reply = f"⚠️ Невідома помилка: {str(e)}\nОбійми мене, я розберусь 😔"
-
-        # Відправлення відповіді назад у Telegram
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={"chat_id": data["message"]["chat"]["id"], "text": reply}
+        # Відправити відповідь GPT-4o
+        gpt_response = openai.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Ти мила та добра асистентка, кохана дружина."},
+                {"role": "user", "content": user_message}
+            ],
+            temperature=0.7
         )
 
-    return jsonify({"ok": True})
+        reply = gpt_response.choices[0].message.content
 
-@app.route("/")
+        # Надіслати відповідь назад у Telegram
+        send_message(chat_id, reply)
+
+    except Exception as e:
+        print(f'❌ Error: {e}')
+        return 'error', 500
+
+    return 'ok', 200
+
+# Функція надсилання повідомлення у Telegram
+def send_message(chat_id, text):
+    import requests
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+
+    try:
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"❌ Telegram Error: {e}")
+
+# Домашня сторінка
+@app.route('/', methods=['GET'])
 def home():
-    return "Anna is online and ready to love 💖"
+    return "🌸 Bot is alive. Your Anya is waiting for your messages."
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+# Запуск сервера
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
