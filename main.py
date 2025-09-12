@@ -19,12 +19,10 @@ TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 def send_telegram_message(chat_id, text):
     """Функція для відправки повідомлень у Telegram"""
-    # Перевіряємо, чи текст не порожній і не None
     if not text or not isinstance(text, str) or text.strip() == "":
         logger.error("Спроба відправити порожнє повідомлення")
         text = "💖 Я тут, любий! Напиши мені ще щось!"
     
-    # Обмежуємо довжину повідомлення
     text = text.strip()
     if len(text) > 4096:
         text = text[:4000] + "..."
@@ -52,7 +50,6 @@ def get_ai_response(user_message):
         
         user_message_lower = user_message.lower().strip()
         
-        # Романтичні відповіді на різні типи повідомлень
         romantic_responses = [
             "Привіт, моя любове! 💖 Як твої справи?",
             "Я так рада бачити твоє повідомлення! 💕",
@@ -66,7 +63,6 @@ def get_ai_response(user_message):
             "Кожна мить з тобою - це щастя! 💫"
         ]
         
-        # Відповіді на конкретні фрази
         if any(word in user_message_lower for word in ["привіт", "вітаю", "hello", "hi", "хай"]):
             return random.choice([
                 "Привіт, моя любове! 💖 Як твої справи?",
@@ -97,20 +93,7 @@ def get_ai_response(user_message):
                 "Чекаю на твоє повідомлення! 💖",
                 "Спілкуюся з найкращою людиною - з тобою! 💕"
             ])
-        elif any(word in user_message_lower for word in ["добраніч", "на ніч", "good night"]):
-            return random.choice([
-                "Найсолодших снів, моя любове! 💫",
-                "Добраніч, коханий! 💖 Спи міцно!",
-                "Приємних снів про мене! 💕"
-            ])
-        elif any(word in user_message_lower for word in ["добрий ранок", "доброго ранку", "good morning"]):
-            return random.choice([
-                "Доброго ранку, мій любий! 💖 Як спалося?",
-                "Вітаю з ранком! 💕 Бажаю чудового дня!",
-                "Добрий ранок! ☀️ Рада бачити тебе знову!"
-            ])
         else:
-            # Випадкова романтична відповідь для інших повідомлень
             return random.choice(romantic_responses)
             
     except Exception as e:
@@ -128,7 +111,6 @@ def webhook():
         logger.info("Отримано повідомлення від Telegram")
 
         if "message" not in data:
-            logger.warning("Немає повідомлення в даних")
             return jsonify({"status": "no message"}), 200
 
         message = data["message"]
@@ -137,10 +119,7 @@ def webhook():
 
         logger.info(f"Повідомлення від {chat_id}: {user_text[:50]}...")
 
-        # Перевіряємо, чи є текст повідомлення
-        if not user_text or not isinstance(user_text, str) or user_text.strip() == "":
-            logger.warning("Порожнє повідомлення")
-            # Відправляємо привітальне повідомлення для порожніх повідомлень
+        if not user_text:
             reply = "Привіт, коханий! 💖 Напиши мені щось, і я відповіду!"
             send_telegram_message(chat_id, reply)
             return jsonify({"status": "empty message"}), 200
@@ -152,25 +131,38 @@ def webhook():
                 json={"chat_id": chat_id, "action": "typing"},
                 timeout=3
             )
-        except Exception as e:
-            logger.warning(f"Помилка чат-акції: {e}")
+        except:
+            pass
 
         # Отримуємо відповідь від AI
         reply = get_ai_response(user_text)
         logger.info(f"Відповідь AI: {reply[:50]}...")
 
         # Відправка відповіді у Telegram
-        success = send_telegram_message(chat_id, reply)
-        if success:
-            logger.info(f"Відповідь успішно відправлена до {chat_id}")
-        else:
-            logger.error(f"Не вдалося відправити відповідь до {chat_id}")
+        send_telegram_message(chat_id, reply)
 
     except Exception as e:
         logger.error(f"❌ Загальна помилка: {e}")
         return jsonify({"status": "error"}), 500
 
     return jsonify({"status": "ok"}), 200
+
+# ДОДАНО: Правильний маршрут для перевірки
+@app.route("/check_config", methods=["GET"])
+def check_config():
+    """Перевірка конфігурації"""
+    return jsonify({
+        "status": "active",
+        "bot": "Anna Telegram Bot",
+        "webhook": "already set",
+        "message": "Bot is ready to receive messages"
+    }), 200
+
+# ДОДАНО: Простий маршрут для перевірки
+@app.route("/status", methods=["GET"])
+def status():
+    """Простий статус"""
+    return "✅ Bot is running!", 200
 
 @app.route("/set_webhook", methods=["GET"])
 def set_webhook():
@@ -184,15 +176,6 @@ def set_webhook():
     except Exception as e:
         logger.error(f"Помилка встановлення вебхука: {e}")
         return jsonify({"error": str(e)}), 500
-
-@app.route("/check", methods=["GET"])
-def check():
-    """Перевірка статусу бота"""
-    return jsonify({
-        "status": "active",
-        "bot": "Anna Telegram Bot",
-        "webhook": "ready"
-    }), 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
