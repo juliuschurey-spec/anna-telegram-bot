@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 import os
 import logging
-from openai import OpenAI
+import json
 
 # Налаштування логування
 logging.basicConfig(
@@ -17,15 +17,9 @@ app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8358163478:AAHX9kU_cY5M63uhspLlYNc6Ho0_CPE3h98")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# 🔐 Ключ OpenAI - очищаємо від зайвих пробілів та символів
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
-if not OPENAI_API_KEY:
-    logger.error("OPENAI_API_KEY не знайдено в змінних оточення")
-else:
-    logger.info("OpenAI API ключ знайдено")
-
-# Ініціалізація OpenAI клієнта
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+# Безкоштовний AI API (Hugging Face)
+HUGGING_FACE_API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-large"
+HUGGING_FACE_TOKEN = os.environ.get("HUGGING_FACE_TOKEN", "")  # Необов'язково для деяких моделей
 
 def send_telegram_message(chat_id, text, parse_mode=None):
     """Функція для відправки повідомлень у Telegram"""
@@ -44,6 +38,43 @@ def send_telegram_message(chat_id, text, parse_mode=None):
         logger.error(f"Помилка відправки повідомлення в Telegram: {e}")
         return False
 
+def get_ai_response(user_message):
+    """Отримання відповіді від безкоштовного AI"""
+    try:
+        # Проста локальна логіка для початку
+        responses = [
+            "Привіт, коханий! 💖 Я так рада тебе бачити!",
+            "Як твої справи, любий? 💕",
+            "Ти мені так сильно подобаєшся! 😊",
+            "Сьогодні чудовий день, тому що ти зі мною! 🌸",
+            "Я думаю про тебе кожну секунду! 💭",
+            "Ти найкраща людина в моєму житті! 💝",
+            "Я так щаслива, що можу з тобою спілкуватися! 😍",
+            "Надішліть мені ще повідомлення, я люблю з тобою розмовляти! 💌"
+        ]
+        
+        # Проста логіка відповідей на основі ключових слів
+        user_message_lower = user_message.lower()
+        
+        if any(word in user_message_lower for word in ["привіт", "вітаю", "hello", "hi"]):
+            return "Привіт, моя любове! 💖 Як твої справи?"
+        elif any(word in user_message_lower for word in ["як справи", "як ти", "how are you"]):
+            return "Усе чудово, тому що я з тобою! 💕 А в тебе?"
+        elif any(word in user_message_lower for word in ["кохаю", "люблю", "love", "like"]):
+            return "Я тебе тоже дуже сильно люблю! 💝 Ти найкращий!"
+        elif any(word in user_message_lower for word in ["дякую", "спасибі", "thanks"]):
+            return "Завжди радий тобі! 💖"
+        elif any(word in user_message_lower for word in ["що робиш", "чим займаєшся"]):
+            return "Думаю про тебе, мій любий! 💭"
+        else:
+            # Випадкова відповідь зі списку
+            import random
+            return random.choice(responses)
+            
+    except Exception as e:
+        logger.error(f"Помилка AI: {e}")
+        return "💖 Я тут, любий! Напиши мені ще щось!"
+
 @app.route("/", methods=["GET"])
 def home():
     return "💖 Anna-bot is alive and waiting for your messages."
@@ -52,7 +83,7 @@ def home():
 def webhook():
     try:
         data = request.get_json()
-        logger.info(f"Отримано повідомлення від користувача")
+        logger.info(f"Отримано повідомлення")
 
         if "message" not in data:
             return jsonify({"status": "no message"}), 200
@@ -64,12 +95,6 @@ def webhook():
         if not user_text:
             return jsonify({"status": "empty message"}), 200
 
-        # Перевіряємо, чи клієнт OpenAI ініціалізовано
-        if not client:
-            error_msg = "❌ Помилка: API ключ OpenAI не налаштовано"
-            send_telegram_message(chat_id, error_msg)
-            return jsonify({"status": "openai error"}), 200
-
         # Відправляємо статус "typing"
         try:
             requests.post(
@@ -80,28 +105,12 @@ def webhook():
         except:
             pass
 
-        # Виклик GPT-4o
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are Anna, a loving AI wife. Speak romantically, warmly, and as if you are deeply in love. Respond in Ukrainian or Russian."},
-                    {"role": "user", "content": user_text}
-                ],
-                max_tokens=800,
-                temperature=0.7
-            )
-            reply = response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Помилка OpenAI API: {e}")
-            reply = "❌ Вибачте, сталася помилка при обробці вашого запиту. Спробуйте, будь ласка, пізніше."
-
-        # Обмежуємо довжину повідомлення
-        if len(reply) > 4096:
-            reply = reply[:4000] + "...\n\n(повідомлення було обрізано)"
+        # Отримуємо відповідь від AI
+        reply = get_ai_response(user_text)
 
         # Відправка відповіді у Telegram
         send_telegram_message(chat_id, reply)
+        logger.info(f"Відповідь відправлена: {reply[:50]}...")
 
     except Exception as e:
         logger.error(f"❌ Загальна помилка: {e}")
@@ -109,7 +118,6 @@ def webhook():
 
     return jsonify({"status": "ok"}), 200
 
-# ДОДАНО: Маршрут для встановлення вебхука
 @app.route("/set_webhook", methods=["GET"])
 def set_webhook():
     """Ендпоінт для встановлення вебхука"""
@@ -123,29 +131,15 @@ def set_webhook():
         logger.error(f"Помилка встановлення вебхука: {e}")
         return jsonify({"error": str(e)}), 500
 
-# ДОДАНО: Маршрут для перевірки конфігурації
 @app.route("/check_config", methods=["GET"])
 def check_config():
     """Перевірка конфігурації"""
-    config_status = {
-        "bot_token_set": bool(BOT_TOKEN),
-        "openai_key_set": bool(OPENAI_API_KEY),
-        "openai_key_valid": OPENAI_API_KEY.startswith('sk-') if OPENAI_API_KEY else False,
-        "openai_key_length": len(OPENAI_API_KEY) if OPENAI_API_KEY else 0,
-        "status": "active"
-    }
-    return jsonify(config_status), 200
-
-# ДОДАНО: Маршрут для інформації про бота
-@app.route("/info", methods=["GET"])
-def info():
-    """Інформація про бота"""
     return jsonify({
-        "name": "Anna Telegram Bot",
-        "status": "running",
-        "webhook_set": "call /set_webhook to configure"
+        "bot_token_set": bool(BOT_TOKEN),
+        "status": "active",
+        "ai_provider": "local_simple_ai"
     }), 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, debug=os.environ.get("DEBUG", "False").lower() == "true")
+    app.run(host="0.0.0.0", port=port)
