@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # 🔐 Токен твого Telegram-бота
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8358163478:AAHX9kU_cY5M63uhspLlYNc6Ho0_CPE3h98")
+BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # 🔐 Ключ OpenAI
