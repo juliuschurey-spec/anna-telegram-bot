@@ -29,6 +29,28 @@ if OPENAI_API_KEY and OPENAI_API_KEY.startswith('sk-'):
 else:
     logger.error("❌ Неправильний або відсутній OpenAI API ключ")
 
+def configure_telegram_webhook():
+    """Register delivery using the existing Render secret; never log token URLs."""
+    if not BOT_TOKEN:
+        logger.error("Telegram webhook registration skipped: TELEGRAM_TOKEN is missing")
+        return False
+    try:
+        response = requests.post(
+            f"{TELEGRAM_API_URL}/setWebhook",
+            json={"url": "https://anna-telegram-bot.onrender.com/webhook"},
+            timeout=10
+        )
+        response.raise_for_status()
+        if response.json().get("ok") is not True:
+            logger.error("Telegram webhook registration was rejected")
+            return False
+        logger.info("Telegram webhook registered successfully")
+        return True
+    except Exception:
+        # Requests exceptions can contain the credential-bearing API URL.
+        logger.error("Telegram webhook registration failed; check token and connectivity")
+        return False
+
 def send_telegram_message(chat_id, text):
     """Функція для відправки повідомлень у Telegram"""
     if not text or not isinstance(text, str):
@@ -144,5 +166,6 @@ def check_config():
     }), 200
 
 if __name__ == "__main__":
+    configure_telegram_webhook()
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
