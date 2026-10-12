@@ -40,7 +40,9 @@ def configure_telegram_webhook():
             json={"url": "https://anna-telegram-bot.onrender.com/webhook"},
             timeout=10
         )
-        response.raise_for_status()
+        if response.status_code != 200:
+            logger.error("Telegram webhook registration HTTP status: %s", response.status_code)
+            return False
         if response.json().get("ok") is not True:
             logger.error("Telegram webhook registration was rejected")
             return False
